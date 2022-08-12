@@ -72,7 +72,6 @@ class Student {
   }
 
   ranking_for_site(findSite) {
-    console.log(this.siteRating, findSite)
     for (let i = 0; i < this.siteRating.length; i++) {
       const siteRating = this.siteRating[i]
       const site = siteRating[0]
@@ -140,12 +139,10 @@ class StudentMatcher {
   getSummary() {
     let numOfStudentsMatched = 0
     this.details = {'random': 0}
-    console.log(this)
     this.siteList.forEach((site) => {
       site.list_students_with_ranking().forEach((studentsWithRanking) => {
         const student = studentsWithRanking[0]
         let ranking = studentsWithRanking[1]
-        console.log(ranking)
 
         numOfStudentsMatched += 1
         if (ranking === '-1') {
@@ -321,7 +318,6 @@ class Program {
       const matcher = new StudentMatcher(studentData, siteData)
       matcher.match()
       const one_match = matcher.getTopFive()
-      console.log(one_match)
       if (one_match > max_one) {
         max_one = one_match
         this.best_match = matcher
