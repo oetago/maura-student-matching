@@ -6437,11 +6437,7 @@ __export(require("./CSV"));
 },{"./CSV":"node_modules/csv-string/dist/CSV.js"}],"js/main.js":[function(require,module,exports) {
 "use strict";
 
-var CSV = _interopRequireWildcard(require("csv-string"));
-
-function _getRequireWildcardCache() { if (typeof WeakMap !== "function") return null; var cache = new WeakMap(); _getRequireWildcardCache = function () { return cache; }; return cache; }
-
-function _interopRequireWildcard(obj) { if (obj && obj.__esModule) { return obj; } if (obj === null || typeof obj !== "object" && typeof obj !== "function") { return { default: obj }; } var cache = _getRequireWildcardCache(); if (cache && cache.has(obj)) { return cache.get(obj); } var newObj = {}; var hasPropertyDescriptor = Object.defineProperty && Object.getOwnPropertyDescriptor; for (var key in obj) { if (Object.prototype.hasOwnProperty.call(obj, key)) { var desc = hasPropertyDescriptor ? Object.getOwnPropertyDescriptor(obj, key) : null; if (desc && (desc.get || desc.set)) { Object.defineProperty(newObj, key, desc); } else { newObj[key] = obj[key]; } } } newObj.default = obj; if (cache) { cache.set(obj, newObj); } return newObj; }
+var _csvString = require("csv-string");
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
@@ -6874,7 +6870,9 @@ function readCsvFile(evt, onLoaded) {
 
     r.onload = function (e) {
       var string = e.target.result;
-      var data = CSV.parse(string);
+
+      var data = _csvString.CSV.parse(string);
+
       onLoaded(data);
     };
 
@@ -6951,7 +6949,7 @@ var parent = module.bundle.parent;
 if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
   var hostname = "" || location.hostname;
   var protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  var ws = new WebSocket(protocol + '://' + hostname + ':' + "58106" + '/');
+  var ws = new WebSocket(protocol + '://' + hostname + ':' + "56697" + '/');
 
   ws.onmessage = function (event) {
     checkedAssets = {};
