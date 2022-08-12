@@ -6437,7 +6437,11 @@ __export(require("./CSV"));
 },{"./CSV":"node_modules/csv-string/dist/CSV.js"}],"js/main.js":[function(require,module,exports) {
 "use strict";
 
-var _csvString = require("csv-string");
+var CSV = _interopRequireWildcard(require("csv-string"));
+
+function _getRequireWildcardCache() { if (typeof WeakMap !== "function") return null; var cache = new WeakMap(); _getRequireWildcardCache = function () { return cache; }; return cache; }
+
+function _interopRequireWildcard(obj) { if (obj && obj.__esModule) { return obj; } if (obj === null || typeof obj !== "object" && typeof obj !== "function") { return { default: obj }; } var cache = _getRequireWildcardCache(); if (cache && cache.has(obj)) { return cache.get(obj); } var newObj = {}; var hasPropertyDescriptor = Object.defineProperty && Object.getOwnPropertyDescriptor; for (var key in obj) { if (Object.prototype.hasOwnProperty.call(obj, key)) { var desc = hasPropertyDescriptor ? Object.getOwnPropertyDescriptor(obj, key) : null; if (desc && (desc.get || desc.set)) { Object.defineProperty(newObj, key, desc); } else { newObj[key] = obj[key]; } } } newObj.default = obj; if (cache) { cache.set(obj, newObj); } return newObj; }
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
@@ -6445,10 +6449,14 @@ function _defineProperties(target, props) { for (var i = 0; i < props.length; i+
 
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); return Constructor; }
 
+CSV = (require('csv-string'), function () {
+  throw new Error('"' + "CSV" + '" is read-only.');
+}());
 /**
  * Shuffles array in place. ES6 version
  * @param {Array} a items An array containing the items.
  */
+
 function shuffle(a) {
   for (var i = a.length - 1; i > 0; i--) {
     var j = Math.floor(Math.random() * (i + 1));
@@ -6870,9 +6878,7 @@ function readCsvFile(evt, onLoaded) {
 
     r.onload = function (e) {
       var string = e.target.result;
-
-      var data = _csvString.CSV.parse(string);
-
+      var data = CSV.parse(string);
       onLoaded(data);
     };
 
