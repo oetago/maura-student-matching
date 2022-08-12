@@ -4,6 +4,7 @@
   "description": "",
   "keywords": "",
   "license": "",
+  "type": "module",
   "homepage": "https://ryanm14.github.io",
   "author": "",
   "scripts": {
