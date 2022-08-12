@@ -1,4 +1,4 @@
-const CSV = require('csv-string')
+import * as CSV from "csv-string";
 
 /**
  * Shuffles array in place. ES6 version
