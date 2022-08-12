@@ -532,7 +532,7 @@ function hmrAcceptRun(bundle, id) {
 }
 
 },{}],"bDbGG":[function(require,module,exports) {
-const CSV = require("csv-string");
+var _csvString = require("csv-string");
 /**
  * Shuffles array in place. ES6 version
  * @param {Array} a items An array containing the items.
@@ -846,7 +846,7 @@ function readCsvFile(evt, onLoaded) {
         const r = new FileReader();
         r.onload = function(e) {
             const string = e.target.result;
-            const data = CSV.parse(string);
+            const data = _csvString.parse(string);
             onLoaded(data);
         };
         r.readAsText(f);
