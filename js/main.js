@@ -314,7 +314,7 @@ class Program {
     let max_one = 0
     this.best_match = null
 
-    for (let i = 0; i < 500; i++) {
+    for (let i = 0; i < 10000; i++) {
       const matcher = new StudentMatcher(studentData, siteData)
       matcher.match()
       const one_match = matcher.getTopFive()
