@@ -4,14 +4,18 @@
   "description": "",
   "keywords": "",
   "license": "",
+  "homepage": "https://ryanm14.github.io",
   "author": "",
   "scripts": {
     "build": "parcel build index.html",
     "dev": "parcel index.html --open",
     "start": "npm run build && npm run dev",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
   },
   "devDependencies": {
+    "gh-pages": "^4.0.0",
     "parcel-bundler": "^1.12.4"
   },
   "volta": {
