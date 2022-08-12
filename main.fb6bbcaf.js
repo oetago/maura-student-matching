@@ -6441,11 +6441,12 @@ function _defineProperties(target, props) { for (var i = 0; i < props.length; i+
 
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); return Constructor; }
 
-CSV = require('csv-string');
+var CSV = require('csv-string');
 /**
  * Shuffles array in place. ES6 version
  * @param {Array} a items An array containing the items.
  */
+
 
 function shuffle(a) {
   for (var i = a.length - 1; i > 0; i--) {
@@ -6945,7 +6946,7 @@ var parent = module.bundle.parent;
 if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
   var hostname = "" || location.hostname;
   var protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  var ws = new WebSocket(protocol + '://' + hostname + ':' + "56697" + '/');
+  var ws = new WebSocket(protocol + '://' + hostname + ':' + "60439" + '/');
 
   ws.onmessage = function (event) {
     checkedAssets = {};
