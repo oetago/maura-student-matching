@@ -1,4 +1,4 @@
-import * as CSV from 'csv-string';
+import {CSV} from 'csv-string'
 
 /**
  * Shuffles array in place. ES6 version
