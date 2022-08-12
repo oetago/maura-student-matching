@@ -1,4 +1,4 @@
-CSV = require('csv-string');
+const CSV = require('csv-string')
 
 /**
  * Shuffles array in place. ES6 version
@@ -339,8 +339,7 @@ class Program {
 
     const rows = this.best_match.getDownloadRowsStudents()
 
-    let csvContent = "data:text/csv;charset=utf-8,"
-      + rows.map(e => e.join(",")).join("\n");
+    let csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
 
     var encodedUri = encodeURI(csvContent);
     var link = document.createElement("a");
@@ -356,8 +355,7 @@ class Program {
 
     const rows = this.best_match.getDownloadRowsSites()
 
-    let csvContent = "data:text/csv;charset=utf-8,"
-      + rows.map(e => e.join(",")).join("\n");
+    let csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
 
     var encodedUri = encodeURI(csvContent);
     var link = document.createElement("a");
