@@ -20,5 +20,9 @@
   },
   "volta": {
     "node": "16.16.0"
+  },
+  "dependencies": {
+    "csv": "^6.2.0",
+    "csv-string": "^4.1.0"
   }
 }

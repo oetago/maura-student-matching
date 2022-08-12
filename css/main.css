@@ -17,6 +17,10 @@ html {
   line-height: 1.4;
 }
 
+body {
+  margin: 16px;
+}
+
 /*
  * Remove text-shadow in selection highlight:
  * https://twitter.com/miketaylr/status/12228805301
@@ -31,6 +35,11 @@ html {
   background: #b3d4fc;
   text-shadow: none;
 }
+
+p {
+  white-space: pre-line;
+}
+
 
 ::selection {
   background: #b3d4fc;

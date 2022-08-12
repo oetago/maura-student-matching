@@ -4,3 +4,5 @@
 node_modules
 dist
 .cache
+sample_csv
+*.csv
