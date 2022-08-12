@@ -1,4 +1,8 @@
-import * as CSV from "csv-string";
+const CSVToArray = (data, delimiter = ',', omitFirstRow = false) =>
+  data
+    .slice(omitFirstRow ? data.indexOf('\n') + 1 : 0)
+    .split('\n')
+    .map(v => v.split(delimiter));
 
 /**
  * Shuffles array in place. ES6 version
@@ -375,7 +379,7 @@ function readCsvFile(evt, onLoaded) {
     const r = new FileReader();
     r.onload = function(e) {
       const string = e.target.result;
-      const data = CSV.parse(string);
+      const data = CSVToArray(string);
       onLoaded(data)
     }
     r.readAsText(f);
