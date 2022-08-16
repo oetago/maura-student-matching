@@ -102,6 +102,7 @@ class StudentMatcher {
 
   match() {
     shuffle(this.studentList)
+
     const studentsNotMatched = []
     for (let i = 0; i < this.studentList.length; i++) {
       const student = this.studentList[i]
@@ -112,10 +113,6 @@ class StudentMatcher {
         const pick = sitePicks[j]
         const siteName = pick[0]
         const ranking = pick[1]
-
-        if (!siteName) {
-          continue
-        }
 
         const site = this.siteNameToSite[siteName]
         if (!site.is_full()) {
@@ -129,6 +126,8 @@ class StudentMatcher {
         studentsNotMatched.push(student)
       }
     }
+
+    console.log(studentsNotMatched.length)
 
     for (let i = 0; i < studentsNotMatched.length; i++) {
       for (let j = 0; j < this.siteList.length; j++) {
@@ -320,14 +319,11 @@ class Program {
   }
 
   run() {
-    const studentData = this.parseStudentData()
-    const siteData = this.parseSiteData()
-
     let max_one = 0
     this.best_match = null
 
     for (let i = 0; i < 10000; i++) {
-      const matcher = new StudentMatcher(studentData, siteData)
+      const matcher = new StudentMatcher(this.parseStudentData(), this.parseSiteData())
       matcher.match()
       const one_match = matcher.getTopFive()
       if (one_match > max_one) {
