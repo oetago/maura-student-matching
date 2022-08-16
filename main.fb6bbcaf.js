@@ -275,11 +275,6 @@ var StudentMatcher = /*#__PURE__*/function () {
           var pick = sitePicks[j];
           var siteName = pick[0];
           var ranking = pick[1];
-
-          if (!siteName) {
-            continue;
-          }
-
           var site = this.siteNameToSite[siteName];
 
           if (!site.is_full()) {
@@ -495,13 +490,11 @@ var Program = /*#__PURE__*/function () {
   }, {
     key: "run",
     value: function run() {
-      var studentData = this.parseStudentData();
-      var siteData = this.parseSiteData();
       var max_one = 0;
       this.best_match = null;
 
       for (var i = 0; i < 10000; i++) {
-        var matcher = new StudentMatcher(studentData, siteData);
+        var matcher = new StudentMatcher(this.parseStudentData(), this.parseSiteData());
         matcher.match();
         var one_match = matcher.getTopFive();
 
@@ -642,7 +635,7 @@ var parent = module.bundle.parent;
 if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
   var hostname = "" || location.hostname;
   var protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  var ws = new WebSocket(protocol + '://' + hostname + ':' + "61902" + '/');
+  var ws = new WebSocket(protocol + '://' + hostname + ':' + "64540" + '/');
 
   ws.onmessage = function (event) {
     checkedAssets = {};
