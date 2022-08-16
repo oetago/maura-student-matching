@@ -61,14 +61,18 @@ class Student {
     const siteMatch = []
     for (let i = 0; i < sites.length; i++) {
       const site = sites[i]
-      let rating = parseInt(siteRatings[i])
-      if (isNaN(rating)) {
-        rating = 999
+      if (site) {
+        let rating = parseInt(siteRatings[i])
+        if (isNaN(rating)) {
+          rating = 999
+        }
+        siteMatch.push([site, rating])
       }
-      siteMatch.push([site, rating])
     }
 
-    return siteMatch.sort((a,b) => {return a[1] - b[1]})
+    return siteMatch.sort((a, b) => {
+      return a[1] - b[1]
+    })
   }
 
   ranking_for_site(findSite) {
@@ -109,6 +113,10 @@ class StudentMatcher {
         const siteName = pick[0]
         const ranking = pick[1]
 
+        if (!siteName) {
+          continue
+        }
+
         const site = this.siteNameToSite[siteName]
         if (!site.is_full()) {
           site.add_student(student)
@@ -146,6 +154,8 @@ class StudentMatcher {
 
         numOfStudentsMatched += 1
         if (ranking === '-1') {
+          ranking = "random"
+        } else if (ranking === 999) {
           ranking = "random"
         }
 
@@ -248,8 +258,10 @@ class Program {
       const row = this.rawStudentData[i]
       if (i === 0) {
         studentRow = row
-      } else {
+      } else if (row[0]) {
         studentList.push(row)
+      } else {
+        break
       }
     }
 
@@ -373,7 +385,7 @@ function readCsvFile(evt, onLoaded) {
   const f = evt.target.files[0];
   if (f) {
     const r = new FileReader();
-    r.onload = function(e) {
+    r.onload = function (e) {
       const string = e.target.result;
       const data = CSVToArray(string);
       onLoaded(data)
@@ -382,6 +394,7 @@ function readCsvFile(evt, onLoaded) {
   }
   onLoaded(null)
 }
+
 document.getElementById('student-input').addEventListener('change', (evt) => {
   readCsvFile(evt, (data) => {
     program.rawStudentData = data
@@ -389,8 +402,8 @@ document.getElementById('student-input').addEventListener('change', (evt) => {
 });
 
 document.getElementById('sites-input').addEventListener('change', (evt) => {
-   readCsvFile(evt, (data) => {
-     program.rawSiteData = data
+  readCsvFile(evt, (data) => {
+    program.rawSiteData = data
   })
 });
 
