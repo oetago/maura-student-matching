@@ -127,8 +127,6 @@ class StudentMatcher {
       }
     }
 
-    console.log(studentsNotMatched.length)
-
     for (let i = 0; i < studentsNotMatched.length; i++) {
       for (let j = 0; j < this.siteList.length; j++) {
         const student = studentsNotMatched[i]
