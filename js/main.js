@@ -206,7 +206,7 @@ class StudentMatcher {
 
     this.siteList.forEach((site) => {
       if (site.students.length < site.min) {
-        total = 0
+        total /= 2
       }
     })
     return total
