@@ -6,3 +6,4 @@ dist
 .cache
 sample_csv
 *.csv
+vcs.xml

@@ -1,53 +1,150 @@
 <!doctype html>
-<html class="no-js" lang="">
+<html class="no-js" lang="en">
 
 <head>
   <meta charset="utf-8">
-  <title></title>
-  <meta name="description" content="">
+  <title>Student to Sites Matching Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <meta property="og:title" content="">
-  <meta property="og:type" content="">
-  <meta property="og:url" content="">
-  <meta property="og:image" content="">
-
-  <link rel="manifest" href="site.webmanifest">
-  <link rel="apple-touch-icon" href="icon.png">
-  <!-- Place favicon.ico in the root directory -->
-
   <link rel="stylesheet" href="css/normalize.css">
   <link rel="stylesheet" href="css/main.css">
-
-  <meta name="theme-color" content="#fafafa">
 </head>
 
 <body>
+  <!-- View Switcher (Top Sticky Bar) -->
+  <div class="view-switcher-bar">
+    <div class="view-switcher-container">
+      <button class="view-btn active" id="btn-view-dashboard">✨ Dashboard (Optimal LP)</button>
+      <button class="view-btn" id="btn-view-classic">📄 Classic Mode (Monte Carlo)</button>
+    </div>
+  </div>
 
-  <h1>Student to Sites Matching!</h1>
+  <!-- MODERN DASHBOARD VIEW -->
+  <div id="dashboard-view" class="container">
+    <header>
+      <div>
+        <h1>Student to Sites Matching</h1>
+        <div class="subtitle">Linear Programming Optimizer</div>
+      </div>
+      <div class="badge">Deterministic Solver</div>
+    </header>
 
-  <label>Select Student CSV file:</label>
-  <input type="file" id="student-input" />
+    <div class="dashboard-grid">
+      <!-- Left Column: Inputs -->
+      <div class="panel">
+        <div class="panel-title">
+          <span>📁</span> Load Data CSVs
+        </div>
 
-  <br/>
-  <br/>
+        <div class="upload-group">
+          <label class="upload-label">Students CSV</label>
+          <div class="file-dropzone" id="student-dropzone">
+            <div class="dropzone-icon">📥</div>
+            <div class="dropzone-text" id="student-file-name">Click or drag student CSV here</div>
+            <input type="file" id="student-input-db" accept=".csv" />
+          </div>
+        </div>
 
-  <label>Select Sites CSV file below:</label>
-  <input type="file" id="sites-input" />
-  <br/>
-  <br/>
+        <div class="upload-group">
+          <label class="upload-label">Sites CSV</label>
+          <div class="file-dropzone" id="sites-dropzone">
+            <div class="dropzone-icon">📥</div>
+            <div class="dropzone-text" id="sites-file-name">Click or drag sites CSV here</div>
+            <input type="file" id="sites-input-db" accept=".csv" />
+          </div>
+        </div>
 
-  <button id="generate-button">Generate Matchings!</button>
+        <button id="generate-button-db" class="btn btn-primary">⚡ Generate Matchings!</button>
+      </div>
 
-  <p id="output"></p>
+      <!-- Right Column: Results Dashboard -->
+      <div class="panel" id="results-panel">
+        <div class="panel-title">
+          <span>📊</span> Matching Results Dashboard
+        </div>
 
-  <button id="download-button-students">Download Student Matchings</button>
-  <button id="download-button-sites">Download Site Details</button>
+        <!-- Loading spinner -->
+        <div id="loading-spinner" class="loading-indicator" hidden>
+          <div class="spinner"></div>
+          <div style="color: var(--text-secondary); font-size: 0.9rem;">Solving matching constraints...</div>
+        </div>
 
+        <!-- Dashboard Content -->
+        <div id="dashboard-content" style="display: none;">
+          <!-- Status Banner -->
+          <div id="status-banner" class="alert-banner"></div>
+
+          <!-- Validation / Problems section -->
+          <div id="problems-section" class="problems-panel" style="display: none;">
+            <div class="problems-title">⚠️ Data & Matching Warnings</div>
+            <ul id="problems-list" class="problems-list"></ul>
+          </div>
+
+          <!-- Stats Grid -->
+          <div class="stats-container">
+            <div class="stat-card">
+              <div class="stat-label">Total Students</div>
+              <div class="stat-value" id="stat-students">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Total Sites</div>
+              <div class="stat-value" id="stat-sites">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">1st Choice %</div>
+              <div class="stat-value highlight-success" id="stat-first-choice">0%</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Top 3 Choice %</div>
+              <div class="stat-value highlight-success" id="stat-top3-choice">0%</div>
+            </div>
+          </div>
+
+          <!-- Raw summary output console -->
+          <div id="output-db" class="output-console"></div>
+
+          <!-- Actions -->
+          <div class="downloads-box">
+            <button id="download-button-students-db" class="btn btn-success">📥 Download Student Matches</button>
+            <button id="download-button-sites-db" class="btn btn-success">📋 Download Site Details</button>
+          </div>
+        </div>
+        
+        <!-- Placeholder before generation -->
+        <div id="dashboard-placeholder" style="text-align: center; padding: 4rem 2rem; color: var(--text-secondary);">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">📈</div>
+          <div>Upload your CSV files and click "Generate Matchings" to calculate optimal assignments.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CLASSIC VIEW (Emulates original unstyled layout) -->
+  <div id="classic-view" style="display: none;">
+    <h1>Student to Sites Matching!</h1>
+
+    <label>Select Student CSV file:</label>
+    <input type="file" id="student-input" />
+
+    <br/>
+    <br/>
+
+    <label>Select Sites CSV file below:</label>
+    <input type="file" id="sites-input" />
+    <br/>
+    <br/>
+
+    <button id="generate-button">Generate Matchings!</button>
+
+    <p id="output"></p>
+
+    <button id="download-button-students">Download Student Matchings</button>
+    <button id="download-button-sites">Download Site Details</button>
+  </div>
 
   <script src="js/vendor/modernizr-3.11.2.min.js"></script>
   <script src="js/plugins.js"></script>
-  <script type="module" src="js/main.js"></script>
+  <script src="js/vendor/solver.js"></script>
+  <script src="js/main.js"></script>
 </body>
 
 </html>
