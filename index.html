@@ -53,19 +53,26 @@
           </div>
         </div>
 
-        <button id="generate-button-db" class="btn btn-primary">⚡ Generate Matchings!</button>
+        <div class="options-info-box">
+          <div class="options-info-title"><span>⚖️</span> Dual Optimization</div>
+          <div class="options-info-desc">
+            Calculates and presents both <strong>Option A</strong> (Broadest Satisfaction) and <strong>Option B</strong> (Maximize 1st Choice) side-by-side with separate download options.
+          </div>
+        </div>
+
+        <button id="generate-button-db" class="btn btn-primary">⚡ Generate & Compare Matchings!</button>
       </div>
 
       <!-- Right Column: Results Dashboard -->
       <div class="panel" id="results-panel">
         <div class="panel-title">
-          <span>📊</span> Matching Results Dashboard
+          <span>📊</span> Optimization Comparison Dashboard
         </div>
 
         <!-- Loading spinner -->
         <div id="loading-spinner" class="loading-indicator" hidden>
           <div class="spinner"></div>
-          <div style="color: var(--text-secondary); font-size: 0.9rem;">Solving matching constraints...</div>
+          <div style="color: var(--text-secondary); font-size: 0.9rem;">Solving matching constraints for Option A & Option B...</div>
         </div>
 
         <!-- Dashboard Content -->
@@ -79,7 +86,7 @@
             <ul id="problems-list" class="problems-list"></ul>
           </div>
 
-          <!-- Stats Grid -->
+          <!-- Top Level Stats Summary Grid -->
           <div class="stats-container">
             <div class="stat-card">
               <div class="stat-label">Total Students</div>
@@ -90,23 +97,127 @@
               <div class="stat-value" id="stat-sites">0</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">1st Choice %</div>
-              <div class="stat-value highlight-success" id="stat-first-choice">0%</div>
+              <div class="stat-label">Top 3 Placement Rate</div>
+              <div class="stat-value highlight-success" id="stat-top3-rate">100%</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">Top 3 Choice %</div>
-              <div class="stat-value highlight-success" id="stat-top3-choice">0%</div>
+              <div class="stat-label">Site Min/Max Limits</div>
+              <div class="stat-value highlight-success" id="stat-capacities-status">100% Met</div>
             </div>
           </div>
 
-          <!-- Raw summary output console -->
-          <div id="output-db" class="output-console"></div>
+          <!-- Side-by-Side Options Cards -->
+          <div class="options-comparison-grid">
+            <!-- Option A Card -->
+            <div class="option-card" id="card-option-a">
+              <div class="option-card-header">
+                <div>
+                  <span class="option-badge">Option A</span>
+                  <h3 class="option-title">Broadest Satisfaction</h3>
+                  <div class="option-subtitle">Prioritizes Top 3 & Top 2 Group Placements</div>
+                </div>
+              </div>
+              <div class="option-metric-list">
+                <div class="option-metric-row">
+                  <span class="metric-name">1st Choice (Rank 1):</span>
+                  <span class="metric-val" id="opt-a-rank1">-</span>
+                </div>
+                <div class="option-metric-row">
+                  <span class="metric-name">2nd Choice (Rank 2):</span>
+                  <span class="metric-val" id="opt-a-rank2">-</span>
+                </div>
+                <div class="option-metric-row">
+                  <span class="metric-name">3rd Choice (Rank 3):</span>
+                  <span class="metric-val" id="opt-a-rank3">-</span>
+                </div>
+                <div class="option-metric-row highlight">
+                  <span class="metric-name">Top 2 Total:</span>
+                  <span class="metric-val highlight-success" id="opt-a-top2">-</span>
+                </div>
+                <div class="option-metric-row highlight">
+                  <span class="metric-name">Top 3 Total:</span>
+                  <span class="metric-val highlight-success" id="opt-a-top3">-</span>
+                </div>
+                <div class="option-metric-row">
+                  <span class="metric-name">Rank 4 or Lower:</span>
+                  <span class="metric-val" id="opt-a-lower">0 (0%)</span>
+                </div>
+              </div>
+              <div class="option-card-actions">
+                <button id="download-button-students-a" class="btn btn-success">📥 Download Option A Matches</button>
+                <button id="download-button-sites-a" class="btn btn-secondary">📋 Option A Site Details</button>
+              </div>
+            </div>
 
-          <!-- Actions -->
-          <div class="downloads-box">
-            <button id="download-button-students-db" class="btn btn-success">📥 Download Student Matches</button>
-            <button id="download-button-sites-db" class="btn btn-success">📋 Download Site Details</button>
+            <!-- Option B Card -->
+            <div class="option-card" id="card-option-b">
+              <div class="option-card-header">
+                <div>
+                  <span class="option-badge option-badge-alt">Option B</span>
+                  <h3 class="option-title">Maximize 1st Choice</h3>
+                  <div class="option-subtitle">Max 1st Choices with 100% Top 3 Guarantee</div>
+                </div>
+              </div>
+              <div class="option-metric-list">
+                <div class="option-metric-row">
+                  <span class="metric-name">1st Choice (Rank 1):</span>
+                  <span class="metric-val" id="opt-b-rank1">-</span>
+                </div>
+                <div class="option-metric-row">
+                  <span class="metric-name">2nd Choice (Rank 2):</span>
+                  <span class="metric-val" id="opt-b-rank2">-</span>
+                </div>
+                <div class="option-metric-row">
+                  <span class="metric-name">3rd Choice (Rank 3):</span>
+                  <span class="metric-val" id="opt-b-rank3">-</span>
+                </div>
+                <div class="option-metric-row highlight">
+                  <span class="metric-name">Top 2 Total:</span>
+                  <span class="metric-val highlight-success" id="opt-b-top2">-</span>
+                </div>
+                <div class="option-metric-row highlight">
+                  <span class="metric-name">Top 3 Total:</span>
+                  <span class="metric-val highlight-success" id="opt-b-top3">-</span>
+                </div>
+                <div class="option-metric-row">
+                  <span class="metric-name">Rank 4 or Lower:</span>
+                  <span class="metric-val" id="opt-b-lower">0 (0%)</span>
+                </div>
+              </div>
+              <div class="option-card-actions">
+                <button id="download-button-students-b" class="btn btn-success">📥 Download Option B Matches</button>
+                <button id="download-button-sites-b" class="btn btn-secondary">📋 Option B Site Details</button>
+              </div>
+            </div>
           </div>
+
+          <!-- Comparison Table -->
+          <div class="table-section-title"><span>📋</span> Side-by-Side Comparison</div>
+          <div class="table-container">
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th>Placement Metric</th>
+                  <th>Option A (Broadest Satisfaction)</th>
+                  <th>Option B (Maximize 1st Choice)</th>
+                  <th>Trade-off Summary</th>
+                </tr>
+              </thead>
+              <tbody id="comparison-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Raw summary output console with tabs -->
+          <div class="tab-console-header">
+            <span class="console-label">Detailed Solution Log:</span>
+            <div class="tab-group">
+              <button id="btn-log-a" class="tab-btn active">Option A Log</button>
+              <button id="btn-log-b" class="tab-btn">Option B Log</button>
+            </div>
+          </div>
+          <div id="output-db" class="output-console"></div>
         </div>
         
         <!-- Placeholder before generation -->

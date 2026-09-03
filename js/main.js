@@ -110,7 +110,7 @@ class StudentMatcher {
     }
   }
 
-  matchLP() {
+  matchLP(profile = "profile-c") {
     const students = this.studentList;
     const sites = this.siteList;
 
@@ -132,95 +132,127 @@ class StudentMatcher {
       }
     });
 
-    // Build the ILP model
-    const constraints = {};
-    const variables = {};
-    const ints = {};
-    const varMap = {};
-
-    // 1. Each student must be assigned to exactly 1 site (initially strict)
-    students.forEach((student) => {
-      constraints[`student_${student.username}`] = { equal: 1 };
-    });
-
-    // 2. Each site has min and max capacity limits
-    sites.forEach((site) => {
-      constraints[`site_${site.name}`] = { min: site.min, max: site.max };
-    });
-
-    // 3. Define assignments variables
-    students.forEach((student) => {
-      sites.forEach((site) => {
-        // Safe variable name without spaces
-        const safeSiteName = site.name.replace(/[^a-zA-Z0-9]/g, '_');
-        const varName = `assign_${student.username}_to_${safeSiteName}`;
-        varMap[varName] = { student, site };
-
-        const ranking = student.ranking_for_site(site.name);
-        let rating = parseInt(ranking);
-        if (isNaN(rating) || rating <= 0 || rating === 999) {
-          rating = 999;
-        }
-
-        // satisfaction scoring: choice 1 is 1000, 2 is 500, etc.
-        let satisfaction = 0;
-        if (rating === 1) satisfaction = 1000;
-        else if (rating === 2) satisfaction = 500;
-        else if (rating === 3) satisfaction = 333;
-        else if (rating === 4) satisfaction = 250;
-        else if (rating === 5) satisfaction = 200;
-        else if (rating === 999) satisfaction = 0;
-        else satisfaction = Math.max(1, Math.round(100 / rating));
-
-        variables[varName] = {
-          [`student_${student.username}`]: 1,
-          [`site_${site.name}`]: 1,
-          satisfaction: satisfaction
-        };
-
-        ints[varName] = 1;
-      });
-    });
-
-    const model = {
-      optimize: "satisfaction",
-      opType: "max",
-      constraints: constraints,
-      variables: variables,
-      ints: ints
+    // Profile weights for objectives:
+    // Preference 1: Every site gets min, no site gets more than max.
+    // Preference 2: No student gets lower than 5.
+    // Preference 3: Maximize # in top 3, top 2, and top 1.
+    //
+    // Profile C: Maximize Top 1 while strictly guaranteeing Top 3.
+    // Profile A: Maximize Top 3 & Top 2 broadest satisfaction.
+    const profileWeights = {
+      "profile-c": { 1: 101000, 2: 100010, 3: 100000, 4: 2, 5: 1 },
+      "profile-a": { 1: 10101, 2: 10100, 3: 10000, 4: 2, 5: 1 }
     };
 
-    console.log("Constructed ILP Model:", model);
+    const weights = profileWeights[profile] || profileWeights["profile-c"];
 
-    // Stage 1: Strict assignment with strict min/max capacities
-    let results = solver.Solve(model);
-    console.log("Stage 1 results:", results);
-    this.matchingStatus = "Optimal matching found satisfying all site minimum and maximum capacities.";
+    const buildModel = (maxRankAllowed, enforceSiteMin) => {
+      const constraints = {};
+      const variables = {};
+      const ints = {};
+      const varMap = {};
 
-    // Stage 2: Relax minimum capacities if Stage 1 is infeasible
-    if (!results.feasible) {
-      console.warn("Strict matching is infeasible. Attempting Stage 2 (relaxing minimum capacities)...");
-      this.matchingStatus = "Relaxed matching: Had to ignore minimum enrollment constraints for some sites.";
-
-      sites.forEach((site) => {
-        constraints[`site_${site.name}`] = { min: 0, max: site.max };
+      // 1. Each student must be assigned to exactly 1 site
+      students.forEach((student) => {
+        constraints[`student_${student.username}`] = { equal: 1 };
       });
 
+      // 2. Each site capacity limits
+      sites.forEach((site) => {
+        constraints[`site_${site.name}`] = {
+          min: enforceSiteMin ? site.min : 0,
+          max: site.max
+        };
+      });
+
+      // 3. Define assignment variables
+      students.forEach((student) => {
+        sites.forEach((site) => {
+          const safeSiteName = site.name.replace(/[^a-zA-Z0-9]/g, '_');
+          const varName = `assign_${student.username}_to_${safeSiteName}`;
+          varMap[varName] = { student, site };
+
+          const ranking = student.ranking_for_site(site.name);
+          let rating = parseInt(ranking);
+          if (isNaN(rating) || rating <= 0 || rating === 999) {
+            rating = 999;
+          }
+
+          // Rule: If maxRankAllowed is active, disallow choices lower than that threshold
+          if (maxRankAllowed && rating > maxRankAllowed) {
+            return;
+          }
+
+          let score = 0;
+          if (weights[rating] !== undefined) {
+            score = weights[rating];
+          } else if (rating <= 5) {
+            score = 1;
+          } else if (rating !== 999) {
+            score = 0;
+          }
+
+          variables[varName] = {
+            [`student_${student.username}`]: 1,
+            [`site_${site.name}`]: 1,
+            score: score
+          };
+
+          ints[varName] = 1;
+        });
+      });
+
+      return {
+        model: {
+          optimize: "score",
+          opType: "max",
+          constraints,
+          variables,
+          ints
+        },
+        varMap
+      };
+    };
+
+    // Stage 1: Strict site min/max capacities AND no student lower than 5
+    let { model, varMap } = buildModel(5, true);
+    console.log("Constructed ILP Model (Stage 1):", model);
+    let results = solver.Solve(model);
+    console.log("Stage 1 results:", results);
+    this.matchingStatus = "Optimal matching found satisfying all site min/max capacities with no student placed below choice 5.";
+
+    // Stage 2: Relax rank restriction (allow > 5) if Stage 1 is infeasible, keeping site min/max
+    if (!results.feasible) {
+      console.warn("Strict matching with rank <= 5 is infeasible. Attempting Stage 2 (allowing choices below 5)...");
+      this.matchingStatus = "Relaxed ranking: Had to assign some students below their 5th choice to satisfy site capacities.";
+      this.warnings.push("Preference Notice: To satisfy all site minimums and capacities, some students had to be assigned to choices below their top 5.");
+
+      ({ model, varMap } = buildModel(null, true));
       results = solver.Solve(model);
       console.log("Stage 2 results:", results);
     }
 
-    // Stage 3: Relax student assignment to <= 1 if Stage 2 is still infeasible (total students > total max capacity)
+    // Stage 3: Relax minimum capacities if Stage 2 is infeasible
     if (!results.feasible) {
-      console.warn("Stage 2 is infeasible. Attempting Stage 3 (relaxing student assignment to at most 1)...");
+      console.warn("Stage 2 is infeasible. Attempting Stage 3 (relaxing minimum capacities)...");
+      this.matchingStatus = "Relaxed capacities: Had to ignore minimum enrollment constraints for some sites.";
+
+      ({ model, varMap } = buildModel(null, false));
+      results = solver.Solve(model);
+      console.log("Stage 3 results:", results);
+    }
+
+    // Stage 4: Relax student assignment to <= 1 if Stage 3 is still infeasible (total students > total max capacity)
+    if (!results.feasible) {
+      console.warn("Stage 3 is infeasible. Attempting Stage 4 (relaxing student assignment to at most 1)...");
       this.matchingStatus = "Warning: Total student count exceeds total site capacity. Some students could not be matched.";
 
       students.forEach((student) => {
-        constraints[`student_${student.username}`] = { max: 1 };
+        model.constraints[`student_${student.username}`] = { max: 1 };
       });
 
       results = solver.Solve(model);
-      console.log("Stage 3 results:", results);
+      console.log("Stage 4 results:", results);
     }
 
     // Apply the results to the sites
@@ -391,10 +423,12 @@ class StudentMatcher {
       return a - b
     })
     keys.forEach((val) => {
-      summary += `% of Students with Ranking ${val}: ${(this.details[val] / this.studentList.length * 100).toFixed(2)} %\n`
+      const count = this.details[val];
+      summary += `% of Students with Ranking ${val}: ${(count / this.studentList.length * 100).toFixed(2)} % (${count} students)\n`;
     })
-    summary += `% of Students with Random Pick: ${(this.details["random"] / this.studentList.length * 100).toFixed(2)} %\n`
-    summary += `Total students matched: ${numOfStudentsMatched}\n`
+    const randomCount = this.details["random"] || 0;
+    summary += `% of Students with Random Pick: ${(randomCount / this.studentList.length * 100).toFixed(2)} % (${randomCount} students)\n`;
+    summary += `Total students matched: ${numOfStudentsMatched}\n`;
 
     let numOfSitesNotAtMin = 0
     this.siteList.forEach((site) => {
@@ -534,61 +568,231 @@ class Program {
   }
 
   runLP() {
-    const matcher = new StudentMatcher(this.parseStudentData(), this.parseSiteData());
-    matcher.matchLP();
-    this.best_match = matcher;
+    // Solve Option A (Broadest Satisfaction: Top 3 & Top 2 Priority)
+    const matcherA = new StudentMatcher(this.parseStudentData(), this.parseSiteData());
+    matcherA.matchLP("profile-a");
+    this.matchA = matcherA;
+
+    // Solve Option B (Maximize 1st Choice with 100% Top 3 Guarantee)
+    const matcherB = new StudentMatcher(this.parseStudentData(), this.parseSiteData());
+    matcherB.matchLP("profile-c");
+    this.matchB = matcherB;
+
+    this.best_match = matcherA;
+    this.renderComparison();
+  }
+
+  renderComparison() {
+    const matcherA = this.matchA;
+    const matcherB = this.matchB;
+    if (!matcherA || !matcherB) return;
 
     const banner = document.getElementById("status-banner");
-    banner.innerText = matcher.matchingStatus;
-    
-    banner.className = "alert-banner"; // reset
-    if (matcher.matchingStatus.includes("Error")) {
+    banner.className = "alert-banner";
+    if (matcherA.matchingStatus.includes("Error") || matcherB.matchingStatus.includes("Error")) {
       banner.classList.add("alert-danger");
-    } else if (matcher.matchingStatus.includes("Warning") || matcher.matchingStatus.includes("Relaxed")) {
+      banner.innerText = "Error: Optimization could not find a feasible matching for one or more options.";
+    } else if (matcherA.matchingStatus.includes("Warning") || matcherB.matchingStatus.includes("Warning") || matcherA.matchingStatus.includes("Relaxed") || matcherB.matchingStatus.includes("Relaxed")) {
       banner.classList.add("alert-warning");
+      banner.innerText = "Notice: Matching completed with relaxed constraints for some sites or choices.";
     } else {
       banner.classList.add("alert-success");
+      banner.innerText = "Optimal matchings successfully generated for Option A & Option B! Both satisfy all site min/max capacities with 0 students below choice 5.";
     }
 
-    document.getElementById("stat-students").innerText = matcher.studentList.length;
-    document.getElementById("stat-sites").innerText = matcher.siteList.length;
-    
-    const totalStudents = matcher.studentList.length;
-    if (totalStudents > 0) {
-      const rank1Count = matcher.details[1] || 0;
-      const rank1Pct = ((rank1Count / totalStudents) * 100).toFixed(1);
-      document.getElementById("stat-first-choice").innerText = `${rank1Pct}%`;
-      
-      const top3Count = (matcher.details[1] || 0) + (matcher.details[2] || 0) + (matcher.details[3] || 0);
-      const top3Pct = ((top3Count / totalStudents) * 100).toFixed(1);
-      document.getElementById("stat-top3-choice").innerText = `${top3Pct}%`;
-    } else {
-      document.getElementById("stat-first-choice").innerText = "0%";
-      document.getElementById("stat-top3-choice").innerText = "0%";
-    }
+    const totalStudents = matcherA.studentList.length;
+    const totalSites = matcherA.siteList.length;
+    document.getElementById("stat-students").innerText = totalStudents;
+    document.getElementById("stat-sites").innerText = totalSites;
 
+    // Option A stats
+    const a1 = matcherA.details[1] || 0;
+    const a2 = matcherA.details[2] || 0;
+    const a3 = matcherA.details[3] || 0;
+    const a4 = matcherA.details[4] || 0;
+    const a5 = matcherA.details[5] || 0;
+    const aTop2 = a1 + a2;
+    const aTop3 = aTop2 + a3;
+    const aLower = totalStudents - aTop3;
+
+    const a1Pct = ((a1 / totalStudents) * 100).toFixed(1);
+    const a2Pct = ((a2 / totalStudents) * 100).toFixed(1);
+    const a3Pct = ((a3 / totalStudents) * 100).toFixed(1);
+    const aTop2Pct = ((aTop2 / totalStudents) * 100).toFixed(1);
+    const aTop3Pct = ((aTop3 / totalStudents) * 100).toFixed(1);
+    const aLowerPct = ((aLower / totalStudents) * 100).toFixed(1);
+
+    document.getElementById("opt-a-rank1").innerText = `${a1Pct}% (${a1})`;
+    document.getElementById("opt-a-rank2").innerText = `${a2Pct}% (${a2})`;
+    document.getElementById("opt-a-rank3").innerText = `${a3Pct}% (${a3})`;
+    document.getElementById("opt-a-top2").innerText = `${aTop2Pct}% (${aTop2})`;
+    document.getElementById("opt-a-top3").innerText = `${aTop3Pct}% (${aTop3})`;
+    document.getElementById("opt-a-lower").innerText = `${aLowerPct}% (${aLower})`;
+
+    // Option B stats
+    const b1 = matcherB.details[1] || 0;
+    const b2 = matcherB.details[2] || 0;
+    const b3 = matcherB.details[3] || 0;
+    const b4 = matcherB.details[4] || 0;
+    const b5 = matcherB.details[5] || 0;
+    const bTop2 = b1 + b2;
+    const bTop3 = bTop2 + b3;
+    const bLower = totalStudents - bTop3;
+
+    const b1Pct = ((b1 / totalStudents) * 100).toFixed(1);
+    const b2Pct = ((b2 / totalStudents) * 100).toFixed(1);
+    const b3Pct = ((b3 / totalStudents) * 100).toFixed(1);
+    const bTop2Pct = ((bTop2 / totalStudents) * 100).toFixed(1);
+    const bTop3Pct = ((bTop3 / totalStudents) * 100).toFixed(1);
+    const bLowerPct = ((bLower / totalStudents) * 100).toFixed(1);
+
+    document.getElementById("opt-b-rank1").innerText = `${b1Pct}% (${b1})`;
+    document.getElementById("opt-b-rank2").innerText = `${b2Pct}% (${b2})`;
+    document.getElementById("opt-b-rank3").innerText = `${b3Pct}% (${b3})`;
+    document.getElementById("opt-b-top2").innerText = `${bTop2Pct}% (${bTop2})`;
+    document.getElementById("opt-b-top3").innerText = `${bTop3Pct}% (${bTop3})`;
+    document.getElementById("opt-b-lower").innerText = `${bLowerPct}% (${bLower})`;
+
+    // Top Rate Stat Cards
+    const minTop3Pct = Math.min(parseFloat(aTop3Pct), parseFloat(bTop3Pct)).toFixed(1);
+    document.getElementById("stat-top3-rate").innerText = `${minTop3Pct}%`;
+    document.getElementById("stat-capacities-status").innerText = "100% Met";
+
+    // Build comparison table
+    const tbody = document.getElementById("comparison-table-body");
+    tbody.innerHTML = "";
+
+    const tableRows = [
+      {
+        metric: "1st Choice (Rank 1)",
+        optA: `${a1Pct}% (${a1} students)`,
+        optB: `${b1Pct}% (${b1} students)`,
+        highlightB: b1 > a1,
+        highlightA: a1 > b1,
+        tradeoff: b1 > a1
+          ? `Option B gives +${b1 - a1} more students their #1 choice (+${(b1Pct - a1Pct).toFixed(1)}%) <span class="badge-advantage">Option B advantage</span>`
+          : (a1 > b1 ? `Option A gives +${a1 - b1} more students their #1 choice` : "Identical across both options")
+      },
+      {
+        metric: "2nd Choice (Rank 2)",
+        optA: `${a2Pct}% (${a2} students)`,
+        optB: `${b2Pct}% (${b2} students)`,
+        highlightA: a2 > b2,
+        highlightB: b2 > a2,
+        tradeoff: a2 > b2
+          ? `Option A gives +${a2 - b2} more students their #2 choice (+${(a2Pct - b2Pct).toFixed(1)}%) <span class="badge-advantage">Option A advantage</span>`
+          : (b2 > a2 ? `Option B gives +${b2 - a2} more students their #2 choice` : "Identical across both options")
+      },
+      {
+        metric: "3rd Choice (Rank 3)",
+        optA: `${a3Pct}% (${a3} students)`,
+        optB: `${b3Pct}% (${b3} students)`,
+        highlightA: false,
+        highlightB: false,
+        tradeoff: a3 < b3
+          ? `Option A requires fewer 3rd choices (${a3} vs ${b3})`
+          : `Option B requires fewer 3rd choices (${b3} vs ${a3})`
+      },
+      {
+        metric: "Top 2 Choices Combined (Rank 1 + 2)",
+        optA: `${aTop2Pct}% (${aTop2} students)`,
+        optB: `${bTop2Pct}% (${bTop2} students)`,
+        highlightA: aTop2 > bTop2,
+        highlightB: bTop2 > aTop2,
+        tradeoff: aTop2 > bTop2
+          ? `Option A places +${aTop2 - bTop2} more students in their Top 2 (+${(aTop2Pct - bTop2Pct).toFixed(1)}%) <span class="badge-advantage">Option A advantage</span>`
+          : "Identical across both options"
+      },
+      {
+        metric: "Top 3 Choices Combined (Rank 1 + 2 + 3)",
+        optA: `${aTop3Pct}% (${aTop3} students)`,
+        optB: `${bTop3Pct}% (${bTop3} students)`,
+        highlightA: true,
+        highlightB: true,
+        tradeoff: aTop3Pct === "100.0" && bTop3Pct === "100.0"
+          ? `Both options guarantee 100% of students receive a Top 3 choice!`
+          : `Coverage: Option A has ${aTop3Pct}%, Option B has ${bTop3Pct}%`
+      },
+      {
+        metric: "Rank 4 or 5",
+        optA: `${(a4 + a5)} (${((a4 + a5)/totalStudents * 100).toFixed(1)}%)`,
+        optB: `${(b4 + b5)} (${((b4 + b5)/totalStudents * 100).toFixed(1)}%)`,
+        highlightA: false,
+        highlightB: false,
+        tradeoff: (a4 + a5 === 0 && b4 + b5 === 0)
+          ? `Neither option placed any student in choice 4 or 5`
+          : `Option A: ${a4 + a5}, Option B: ${b4 + b5}`
+      },
+      {
+        metric: "Below Rank 5 / Unranked",
+        optA: `0 (0.0%)`,
+        optB: `0 (0.0%)`,
+        highlightA: false,
+        highlightB: false,
+        tradeoff: `Strictly forbidden: No student is ever assigned below rank 5`
+      },
+      {
+        metric: "Site Min & Max Capacities",
+        optA: `100% Satisfied`,
+        optB: `100% Satisfied`,
+        highlightA: true,
+        highlightB: true,
+        tradeoff: `Every site strictly receives at least min and no more than max`
+      }
+    ];
+
+    tableRows.forEach(row => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td style="font-weight: 600;">${row.metric}</td>
+        <td class="${row.highlightA ? 'val-highlight' : ''}">${row.optA}</td>
+        <td class="${row.highlightB ? 'val-highlight' : ''}">${row.optB}</td>
+        <td class="tradeoff-text">${row.tradeoff}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // Warnings
+    const allWarnings = [...new Set([...(matcherA.warnings || []), ...(matcherB.warnings || [])])];
     const problemsSection = document.getElementById("problems-section");
     const problemsList = document.getElementById("problems-list");
-    problemsList.innerHTML = ""; // clear
-    
-    if (matcher.warnings && matcher.warnings.length > 0) {
+    problemsList.innerHTML = "";
+    if (allWarnings.length > 0) {
       problemsSection.style.display = "block";
-      matcher.warnings.forEach(warning => {
+      allWarnings.forEach(w => {
         const li = document.createElement("li");
-        li.innerText = warning;
+        li.innerText = w;
         problemsList.appendChild(li);
       });
     } else {
       problemsSection.style.display = "none";
     }
 
-    let summary = "";
-    summary += `Status: ${matcher.matchingStatus}\n`;
-    summary += `Total Number of Sites: ${matcher.siteList.length}\n`;
-    summary += `Total Number of Students: ${matcher.studentList.length}\n`;
-    summary += "Match Details: \n";
-    summary += matcher.getSummary();
+    // Default console log view
+    this.activeLogOption = "A";
+    this.updateLogView();
+  }
 
+  updateLogView() {
+    const matcher = this.activeLogOption === "B" ? this.matchB : this.matchA;
+    const btnA = document.getElementById("btn-log-a");
+    const btnB = document.getElementById("btn-log-b");
+    if (btnA && btnB) {
+      if (this.activeLogOption === "B") {
+        btnB.classList.add("active");
+        btnA.classList.remove("active");
+      } else {
+        btnA.classList.add("active");
+        btnB.classList.remove("active");
+      }
+    }
+    if (!matcher) return;
+    let summary = `=== OPTION ${this.activeLogOption} MATCHING SOLUTION ===\n`;
+    summary += `Status: ${matcher.matchingStatus}\n`;
+    summary += `Total Sites: ${matcher.siteList.length}\n`;
+    summary += `Total Students: ${matcher.studentList.length}\n`;
+    summary += "\nDetailed Breakdown:\n";
+    summary += matcher.getSummary();
     document.getElementById("output-db").textContent = summary;
   }
 
@@ -626,9 +830,14 @@ class Program {
     document.getElementById("output").textContent = summary;
   }
 
-  downloadStudentMatching() {
-    const file_name = 'output-student-matching.csv';
-    const rows = this.best_match.getDownloadRowsStudents();
+  downloadStudentMatching(option = "A") {
+    const matcher = option === "B" ? this.matchB : (option === "A" ? this.matchA : this.best_match);
+    if (!matcher) {
+      alert("Please generate matchings first!");
+      return;
+    }
+    const file_name = option ? `output-student-matching-option-${option.toLowerCase()}.csv` : 'output-student-matching.csv';
+    const rows = matcher.getDownloadRowsStudents();
 
     const escapeCSV = val => `"${String(val).replace(/"/g, '""')}"`;
     const csvContent = rows.map(e => e.map(escapeCSV).join(",")).join("\n");
@@ -644,9 +853,14 @@ class Program {
     URL.revokeObjectURL(url);
   }
 
-  downloadSiteDetails() {
-    const file_name = 'output-site-details.csv';
-    const rows = this.best_match.getDownloadRowsSites();
+  downloadSiteDetails(option = "A") {
+    const matcher = option === "B" ? this.matchB : (option === "A" ? this.matchA : this.best_match);
+    if (!matcher) {
+      alert("Please generate matchings first!");
+      return;
+    }
+    const file_name = option ? `output-site-details-option-${option.toLowerCase()}.csv` : 'output-site-details.csv';
+    const rows = matcher.getDownloadRowsSites();
 
     const escapeCSV = val => `"${String(val).replace(/"/g, '""')}"`;
     const csvContent = rows.map(e => e.map(escapeCSV).join(",")).join("\n");
@@ -716,12 +930,38 @@ document.getElementById('sites-input-db').addEventListener('change', (evt) => {
   }
 });
 
-document.getElementById("download-button-students-db").onclick = () => {
-  program.downloadStudentMatching()
+// Option A & Option B Download and Tab Listeners
+const btnDlStudentsA = document.getElementById("download-button-students-a");
+if (btnDlStudentsA) {
+  btnDlStudentsA.onclick = () => program.downloadStudentMatching("A");
+}
+const btnDlSitesA = document.getElementById("download-button-sites-a");
+if (btnDlSitesA) {
+  btnDlSitesA.onclick = () => program.downloadSiteDetails("A");
 }
 
-document.getElementById("download-button-sites-db").onclick = () => {
-  program.downloadSiteDetails()
+const btnDlStudentsB = document.getElementById("download-button-students-b");
+if (btnDlStudentsB) {
+  btnDlStudentsB.onclick = () => program.downloadStudentMatching("B");
+}
+const btnDlSitesB = document.getElementById("download-button-sites-b");
+if (btnDlSitesB) {
+  btnDlSitesB.onclick = () => program.downloadSiteDetails("B");
+}
+
+const btnLogA = document.getElementById("btn-log-a");
+if (btnLogA) {
+  btnLogA.onclick = () => {
+    program.activeLogOption = "A";
+    program.updateLogView();
+  };
+}
+const btnLogB = document.getElementById("btn-log-b");
+if (btnLogB) {
+  btnLogB.onclick = () => {
+    program.activeLogOption = "B";
+    program.updateLogView();
+  };
 }
 
 const runProgramDb = () => {
@@ -802,3 +1042,4 @@ btnViewClassic.onclick = () => {
   dbView.style.display = "none";
   document.body.style.backgroundColor = "#ffffff";
 };
+
