@@ -110,7 +110,7 @@ class StudentMatcher {
     }
   }
 
-  matchLP(profile = "profile-c") {
+  matchLP(profile = "profile-b") {
     const students = this.studentList;
     const sites = this.siteList;
 
@@ -131,20 +131,6 @@ class StudentMatcher {
         this.warnings.push(`Data Warning: Students have rated "${siteName}", but this site name is missing from the Sites CSV.`);
       }
     });
-
-    // Profile weights for objectives:
-    // Preference 1: Every site gets min, no site gets more than max.
-    // Preference 2: No student gets lower than 5.
-    // Preference 3: Maximize # in top 3, top 2, and top 1.
-    //
-    // Profile C: Maximize Top 1 while strictly guaranteeing Top 3.
-    // Profile A: Maximize Top 3 & Top 2 broadest satisfaction.
-    const profileWeights = {
-      "profile-c": { 1: 101000, 2: 100010, 3: 100000, 4: 2, 5: 1 },
-      "profile-a": { 1: 10101, 2: 10100, 3: 10000, 4: 2, 5: 1 }
-    };
-
-    const weights = profileWeights[profile] || profileWeights["profile-c"];
 
     const buildModel = (maxRankAllowed, enforceSiteMin) => {
       const constraints = {};
@@ -184,12 +170,22 @@ class StudentMatcher {
           }
 
           let score = 0;
-          if (weights[rating] !== undefined) {
-            score = weights[rating];
-          } else if (rating <= 5) {
-            score = 1;
-          } else if (rating !== 999) {
-            score = 0;
+          if (profile === "profile-a") {
+            // Option A (Broadest Satisfaction): prioritize clustering in Top 2 & Top 3
+            if (rating === 1) score = 10101;
+            else if (rating === 2) score = 10100;
+            else if (rating === 3) score = 10000;
+            else if (rating === 4) score = 10;
+            else if (rating === 5) score = 1;
+            else score = 0;
+          } else {
+            // Option B (Maximize 1st Choice): prioritize 1st choice within the guaranteed threshold
+            if (rating === 1) score = 100000;
+            else if (rating === 2) score = 1000;
+            else if (rating === 3) score = 100;
+            else if (rating === 4) score = 10;
+            else if (rating === 5) score = 1;
+            else score = 0;
           }
 
           variables[varName] = {
@@ -214,55 +210,76 @@ class StudentMatcher {
       };
     };
 
-    // Stage 1: Strict site min/max capacities AND no student lower than 5
-    let { model, varMap } = buildModel(5, true);
-    console.log("Constructed ILP Model (Stage 1):", model);
-    let results = solver.Solve(model);
-    console.log("Stage 1 results:", results);
-    this.matchingStatus = "Optimal matching found satisfying all site min/max capacities with no student placed below choice 5.";
+    // User Principle: Try Top 3, if impossible then try Top 4, then Top 5, until minimum Top X
+    let bestCutoff = null;
+    let finalResults = null;
+    let finalVarMap = null;
+    this.stageUsed = 1;
 
-    // Stage 2: Relax rank restriction (allow > 5) if Stage 1 is infeasible, keeping site min/max
-    if (!results.feasible) {
-      console.warn("Strict matching with rank <= 5 is infeasible. Attempting Stage 2 (allowing choices below 5)...");
-      this.matchingStatus = "Relaxed ranking: Had to assign some students below their 5th choice to satisfy site capacities.";
-      this.warnings.push("Preference Notice: To satisfy all site minimums and capacities, some students had to be assigned to choices below their top 5.");
-
-      ({ model, varMap } = buildModel(null, true));
-      results = solver.Solve(model);
-      console.log("Stage 2 results:", results);
+    // Search for minimum cutoff X (starting at 3, then 4, 5, ...) with strict site min/max
+    for (let rank = 3; rank <= 10; rank++) {
+      const { model, varMap } = buildModel(rank, true);
+      const results = solver.Solve(model);
+      if (results.feasible) {
+        bestCutoff = rank;
+        finalResults = results;
+        finalVarMap = varMap;
+        break;
+      }
     }
 
-    // Stage 3: Relax minimum capacities if Stage 2 is infeasible
-    if (!results.feasible) {
-      console.warn("Stage 2 is infeasible. Attempting Stage 3 (relaxing minimum capacities)...");
+    if (bestCutoff) {
+      this.bestCutoff = bestCutoff;
+      this.matchingStatus = bestCutoff <= 3
+        ? "Optimal matching found: 100% of students guaranteed in Top 3 while strictly satisfying all site min/max capacities!"
+        : `Optimal matching found: 100% of students guaranteed in Top ${bestCutoff} while strictly satisfying all site min/max capacities!`;
+      if (bestCutoff > 3) {
+        this.warnings.push(`Notice: 100% Top 3 was not mathematically possible with site capacities. Solver guaranteed 100% within Top ${bestCutoff}.`);
+      }
+    }
+
+    // Stage 2: If even rank <= 10 with strict min/max was infeasible, allow any rank with strict min/max
+    if (!finalResults || !finalResults.feasible) {
+      console.warn("Strict cutoff search was infeasible. Attempting Stage 2 (allowing all ranks with strict min/max)...");
+      this.stageUsed = 2;
+      const { model, varMap } = buildModel(null, true);
+      finalResults = solver.Solve(model);
+      finalVarMap = varMap;
+      this.matchingStatus = "Relaxed ranking: Had to assign some students below top ranks to satisfy all site minimums.";
+      this.warnings.push("Safety Cascade (Stage 2): Assigned some students below top ranks to satisfy all site minimum capacities.");
+    }
+
+    // Stage 3: Relax minimum capacities if Stage 2 is infeasible (e.g. sum of mins > students)
+    if (!finalResults || !finalResults.feasible) {
+      console.warn("Stage 2 infeasible. Attempting Stage 3 (relaxing minimum capacities)...");
+      this.stageUsed = 3;
+      const { model, varMap } = buildModel(null, false);
+      finalResults = solver.Solve(model);
+      finalVarMap = varMap;
       this.matchingStatus = "Relaxed capacities: Had to ignore minimum enrollment constraints for some sites.";
-
-      ({ model, varMap } = buildModel(null, false));
-      results = solver.Solve(model);
-      console.log("Stage 3 results:", results);
+      this.warnings.push("Safety Cascade (Stage 3): Minimum enrollment constraints were relaxed to allow all students to be assigned.");
     }
 
-    // Stage 4: Relax student assignment to <= 1 if Stage 3 is still infeasible (total students > total max capacity)
-    if (!results.feasible) {
-      console.warn("Stage 3 is infeasible. Attempting Stage 4 (relaxing student assignment to at most 1)...");
-      this.matchingStatus = "Warning: Total student count exceeds total site capacity. Some students could not be matched.";
-
+    // Stage 4: Relax student assignment to <= 1 if total students > total max capacity
+    if (!finalResults || !finalResults.feasible) {
+      console.warn("Stage 3 infeasible. Attempting Stage 4 (relaxing student assignment to at most 1)...");
+      this.stageUsed = 4;
+      const { model, varMap } = buildModel(null, false);
       students.forEach((student) => {
         model.constraints[`student_${student.username}`] = { max: 1 };
       });
-
-      results = solver.Solve(model);
-      console.log("Stage 4 results:", results);
+      finalResults = solver.Solve(model);
+      finalVarMap = varMap;
+      this.matchingStatus = "Warning: Total student count exceeds total site capacity. Some students could not be matched.";
+      this.warnings.push("Safety Cascade (Stage 4): Total students exceed total site maximums. Some students could not be matched.");
     }
 
     // Apply the results to the sites
-    if (results.feasible) {
-      // Clear current assignments
+    if (finalResults && finalResults.feasible) {
       this.siteList.forEach(s => s.students = []);
-
-      for (const [varName, value] of Object.entries(results)) {
-        if (value === 1 && varMap[varName]) {
-          const { student, site } = varMap[varName];
+      for (const [varName, value] of Object.entries(finalResults)) {
+        if (value === 1 && finalVarMap[varName]) {
+          const { student, site } = finalVarMap[varName];
           site.add_student(student);
         }
       }
@@ -284,9 +301,7 @@ class StudentMatcher {
             assigned = true;
           }
         });
-        if (!assigned) {
-          unmatched.push(student.username);
-        }
+        if (!assigned) unmatched.push(student.username);
       });
       if (unmatched.length > 0) {
         this.warnings.push(`Matching Warning: ${unmatched.length} students could not be matched to any site due to capacity limits: ${unmatched.join(', ')}`);
@@ -573,9 +588,9 @@ class Program {
     matcherA.matchLP("profile-a");
     this.matchA = matcherA;
 
-    // Solve Option B (Maximize 1st Choice with 100% Top 3 Guarantee)
+    // Solve Option B (Maximize 1st Choice with Top X Guarantee)
     const matcherB = new StudentMatcher(this.parseStudentData(), this.parseSiteData());
-    matcherB.matchLP("profile-c");
+    matcherB.matchLP("profile-b");
     this.matchB = matcherB;
 
     this.best_match = matcherA;
@@ -589,15 +604,18 @@ class Program {
 
     const banner = document.getElementById("status-banner");
     banner.className = "alert-banner";
+    const guaranteedTop = Math.max(matcherA.bestCutoff || 3, matcherB.bestCutoff || 3);
+    const maxStage = Math.max(matcherA.stageUsed || 1, matcherB.stageUsed || 1);
+
     if (matcherA.matchingStatus.includes("Error") || matcherB.matchingStatus.includes("Error")) {
       banner.classList.add("alert-danger");
       banner.innerText = "Error: Optimization could not find a feasible matching for one or more options.";
-    } else if (matcherA.matchingStatus.includes("Warning") || matcherB.matchingStatus.includes("Warning") || matcherA.matchingStatus.includes("Relaxed") || matcherB.matchingStatus.includes("Relaxed")) {
+    } else if (maxStage > 1) {
       banner.classList.add("alert-warning");
-      banner.innerText = "Notice: Matching completed with relaxed constraints for some sites or choices.";
+      banner.innerText = `Notice: Infeasible under strict limits. Solver automatically relaxed constraints to find a valid matching.`;
     } else {
       banner.classList.add("alert-success");
-      banner.innerText = "Optimal matchings successfully generated for Option A & Option B! Both satisfy all site min/max capacities with 0 students below choice 5.";
+      banner.innerText = `Optimal matchings successfully generated! 100% of students guaranteed in Top ${guaranteedTop} while strictly satisfying all site min/max capacities.`;
     }
 
     const totalStudents = matcherA.studentList.length;
@@ -605,141 +623,148 @@ class Program {
     document.getElementById("stat-students").innerText = totalStudents;
     document.getElementById("stat-sites").innerText = totalSites;
 
-    // Option A stats
-    const a1 = matcherA.details[1] || 0;
-    const a2 = matcherA.details[2] || 0;
-    const a3 = matcherA.details[3] || 0;
-    const a4 = matcherA.details[4] || 0;
-    const a5 = matcherA.details[5] || 0;
-    const aTop2 = a1 + a2;
-    const aTop3 = aTop2 + a3;
-    const aLower = totalStudents - aTop3;
-
-    const a1Pct = ((a1 / totalStudents) * 100).toFixed(1);
-    const a2Pct = ((a2 / totalStudents) * 100).toFixed(1);
-    const a3Pct = ((a3 / totalStudents) * 100).toFixed(1);
-    const aTop2Pct = ((aTop2 / totalStudents) * 100).toFixed(1);
-    const aTop3Pct = ((aTop3 / totalStudents) * 100).toFixed(1);
-    const aLowerPct = ((aLower / totalStudents) * 100).toFixed(1);
-
-    document.getElementById("opt-a-rank1").innerText = `${a1Pct}% (${a1})`;
-    document.getElementById("opt-a-rank2").innerText = `${a2Pct}% (${a2})`;
-    document.getElementById("opt-a-rank3").innerText = `${a3Pct}% (${a3})`;
-    document.getElementById("opt-a-top2").innerText = `${aTop2Pct}% (${aTop2})`;
-    document.getElementById("opt-a-top3").innerText = `${aTop3Pct}% (${aTop3})`;
-    document.getElementById("opt-a-lower").innerText = `${aLowerPct}% (${aLower})`;
-
-    // Option B stats
-    const b1 = matcherB.details[1] || 0;
-    const b2 = matcherB.details[2] || 0;
-    const b3 = matcherB.details[3] || 0;
-    const b4 = matcherB.details[4] || 0;
-    const b5 = matcherB.details[5] || 0;
-    const bTop2 = b1 + b2;
-    const bTop3 = bTop2 + b3;
-    const bLower = totalStudents - bTop3;
-
-    const b1Pct = ((b1 / totalStudents) * 100).toFixed(1);
-    const b2Pct = ((b2 / totalStudents) * 100).toFixed(1);
-    const b3Pct = ((b3 / totalStudents) * 100).toFixed(1);
-    const bTop2Pct = ((bTop2 / totalStudents) * 100).toFixed(1);
-    const bTop3Pct = ((bTop3 / totalStudents) * 100).toFixed(1);
-    const bLowerPct = ((bLower / totalStudents) * 100).toFixed(1);
-
-    document.getElementById("opt-b-rank1").innerText = `${b1Pct}% (${b1})`;
-    document.getElementById("opt-b-rank2").innerText = `${b2Pct}% (${b2})`;
-    document.getElementById("opt-b-rank3").innerText = `${b3Pct}% (${b3})`;
-    document.getElementById("opt-b-top2").innerText = `${bTop2Pct}% (${bTop2})`;
-    document.getElementById("opt-b-top3").innerText = `${bTop3Pct}% (${bTop3})`;
-    document.getElementById("opt-b-lower").innerText = `${bLowerPct}% (${bLower})`;
+    // Populate dynamic option metric lists in the cards
+    const metricListA = document.getElementById("opt-a-metric-list");
+    if (metricListA) {
+      metricListA.innerHTML = this.renderMetricList(matcherA, totalStudents, guaranteedTop);
+    }
+    const metricListB = document.getElementById("opt-b-metric-list");
+    if (metricListB) {
+      metricListB.innerHTML = this.renderMetricList(matcherB, totalStudents, guaranteedTop);
+    }
 
     // Top Rate Stat Cards
-    const minTop3Pct = Math.min(parseFloat(aTop3Pct), parseFloat(bTop3Pct)).toFixed(1);
-    document.getElementById("stat-top3-rate").innerText = `${minTop3Pct}%`;
-    document.getElementById("stat-capacities-status").innerText = "100% Met";
+    const statGuarLabel = document.getElementById("stat-guarantee-label");
+    if (statGuarLabel) {
+      statGuarLabel.innerText = `Top ${guaranteedTop} Guarantee`;
+    }
 
-    // Build comparison table
+    let aGuarCount = 0;
+    let bGuarCount = 0;
+    for (let r = 1; r <= guaranteedTop; r++) {
+      aGuarCount += (matcherA.details[r] || 0);
+      bGuarCount += (matcherB.details[r] || 0);
+    }
+    const aGuarPct = totalStudents > 0 ? ((aGuarCount / totalStudents) * 100).toFixed(1) : "0.0";
+    const bGuarPct = totalStudents > 0 ? ((bGuarCount / totalStudents) * 100).toFixed(1) : "0.0";
+    const minGuarPct = Math.min(parseFloat(aGuarPct), parseFloat(bGuarPct)).toFixed(1);
+    document.getElementById("stat-top3-rate").innerText = `${minGuarPct}%`;
+    document.getElementById("stat-capacities-status").innerText = maxStage >= 3 ? "Relaxed (Below Min)" : "100% Met";
+
+    // Update subtitles dynamically to reflect the discovered Top X guarantee
+    const subA = document.getElementById("opt-a-subtitle");
+    if (subA) {
+      subA.innerText = guaranteedTop <= 3 
+        ? "Prioritizes Top 3 & Top 2 Group Placements" 
+        : `Prioritizes Highest Rankings within Top ${guaranteedTop}`;
+    }
+    const subB = document.getElementById("opt-b-subtitle");
+    if (subB) {
+      subB.innerText = `Max 1st Choices with 100% Top ${guaranteedTop} Guarantee`;
+    }
+
+    // Build comparison table dynamically
     const tbody = document.getElementById("comparison-table-body");
     tbody.innerHTML = "";
 
-    const tableRows = [
-      {
-        metric: "1st Choice (Rank 1)",
-        optA: `${a1Pct}% (${a1} students)`,
-        optB: `${b1Pct}% (${b1} students)`,
-        highlightB: b1 > a1,
-        highlightA: a1 > b1,
-        tradeoff: b1 > a1
-          ? `Option B gives +${b1 - a1} more students their #1 choice (+${(b1Pct - a1Pct).toFixed(1)}%) <span class="badge-advantage">Option B advantage</span>`
-          : (a1 > b1 ? `Option A gives +${a1 - b1} more students their #1 choice` : "Identical across both options")
-      },
-      {
-        metric: "2nd Choice (Rank 2)",
-        optA: `${a2Pct}% (${a2} students)`,
-        optB: `${b2Pct}% (${b2} students)`,
-        highlightA: a2 > b2,
-        highlightB: b2 > a2,
-        tradeoff: a2 > b2
-          ? `Option A gives +${a2 - b2} more students their #2 choice (+${(a2Pct - b2Pct).toFixed(1)}%) <span class="badge-advantage">Option A advantage</span>`
-          : (b2 > a2 ? `Option B gives +${b2 - a2} more students their #2 choice` : "Identical across both options")
-      },
-      {
-        metric: "3rd Choice (Rank 3)",
-        optA: `${a3Pct}% (${a3} students)`,
-        optB: `${b3Pct}% (${b3} students)`,
-        highlightA: false,
-        highlightB: false,
-        tradeoff: a3 < b3
-          ? `Option A requires fewer 3rd choices (${a3} vs ${b3})`
-          : `Option B requires fewer 3rd choices (${b3} vs ${a3})`
-      },
-      {
-        metric: "Top 2 Choices Combined (Rank 1 + 2)",
-        optA: `${aTop2Pct}% (${aTop2} students)`,
-        optB: `${bTop2Pct}% (${bTop2} students)`,
-        highlightA: aTop2 > bTop2,
-        highlightB: bTop2 > aTop2,
-        tradeoff: aTop2 > bTop2
-          ? `Option A places +${aTop2 - bTop2} more students in their Top 2 (+${(aTop2Pct - bTop2Pct).toFixed(1)}%) <span class="badge-advantage">Option A advantage</span>`
-          : "Identical across both options"
-      },
-      {
-        metric: "Top 3 Choices Combined (Rank 1 + 2 + 3)",
-        optA: `${aTop3Pct}% (${aTop3} students)`,
-        optB: `${bTop3Pct}% (${bTop3} students)`,
-        highlightA: true,
-        highlightB: true,
-        tradeoff: aTop3Pct === "100.0" && bTop3Pct === "100.0"
-          ? `Both options guarantee 100% of students receive a Top 3 choice!`
-          : `Coverage: Option A has ${aTop3Pct}%, Option B has ${bTop3Pct}%`
-      },
-      {
-        metric: "Rank 4 or 5",
-        optA: `${(a4 + a5)} (${((a4 + a5)/totalStudents * 100).toFixed(1)}%)`,
-        optB: `${(b4 + b5)} (${((b4 + b5)/totalStudents * 100).toFixed(1)}%)`,
-        highlightA: false,
-        highlightB: false,
-        tradeoff: (a4 + a5 === 0 && b4 + b5 === 0)
-          ? `Neither option placed any student in choice 4 or 5`
-          : `Option A: ${a4 + a5}, Option B: ${b4 + b5}`
-      },
-      {
-        metric: "Below Rank 5 / Unranked",
-        optA: `0 (0.0%)`,
-        optB: `0 (0.0%)`,
-        highlightA: false,
-        highlightB: false,
-        tradeoff: `Strictly forbidden: No student is ever assigned below rank 5`
-      },
-      {
-        metric: "Site Min & Max Capacities",
-        optA: `100% Satisfied`,
-        optB: `100% Satisfied`,
-        highlightA: true,
-        highlightB: true,
-        tradeoff: `Every site strictly receives at least min and no more than max`
+    const tableRows = [];
+    const ranksToShow = Math.max(3, guaranteedTop);
+
+    // 1. Individual Rank breakdown rows (1st, 2nd, 3rd, 4th, 5th, etc.)
+    for (let r = 1; r <= ranksToShow; r++) {
+      const aCount = matcherA.details[r] || 0;
+      const bCount = matcherB.details[r] || 0;
+      const aPct = totalStudents > 0 ? ((aCount / totalStudents) * 100).toFixed(1) : "0.0";
+      const bPct = totalStudents > 0 ? ((bCount / totalStudents) * 100).toFixed(1) : "0.0";
+      const suffix = r === 1 ? "st" : (r === 2 ? "nd" : (r === 3 ? "rd" : "th"));
+
+      let tradeoff = "Identical across both options";
+      if (r === 1) {
+        tradeoff = bCount > aCount
+          ? `Option B gives +${bCount - aCount} more students their #1 choice (+${(bPct - aPct).toFixed(1)}%) <span class="badge-advantage">Option B advantage</span>`
+          : (aCount > bCount ? `Option A gives +${aCount - bCount} more students their #1 choice` : tradeoff);
+      } else if (r === 2) {
+        tradeoff = aCount > bCount
+          ? `Option A gives +${aCount - bCount} more students their #2 choice (+${(aPct - bPct).toFixed(1)}%) <span class="badge-advantage">Option A advantage</span>`
+          : (bCount > aCount ? `Option B gives +${bCount - aCount} more students their #2 choice` : tradeoff);
+      } else {
+        if (aCount !== bCount) {
+          tradeoff = aCount < bCount
+            ? `Option A requires fewer ${r}${suffix} choices (${aCount} vs ${bCount})`
+            : `Option B requires fewer ${r}${suffix} choices (${bCount} vs ${aCount})`;
+        }
       }
-    ];
+
+      tableRows.push({
+        metric: `${r}${suffix} Choice (Rank ${r})`,
+        optA: `${aPct}% (${aCount} students)`,
+        optB: `${bPct}% (${bCount} students)`,
+        highlightA: r === 2 ? aCount > bCount : (r === 1 ? aCount > bCount : false),
+        highlightB: r === 1 ? bCount > aCount : (r === 2 ? bCount > aCount : false),
+        tradeoff
+      });
+    }
+
+    // 2. Cumulative totals rows (Top 2, Top 3, Top 4...)
+    let aCum = 0;
+    let bCum = 0;
+    for (let r = 1; r <= ranksToShow; r++) {
+      aCum += (matcherA.details[r] || 0);
+      bCum += (matcherB.details[r] || 0);
+      if (r >= 2) {
+        const aPct = totalStudents > 0 ? ((aCum / totalStudents) * 100).toFixed(1) : "0.0";
+        const bPct = totalStudents > 0 ? ((bCum / totalStudents) * 100).toFixed(1) : "0.0";
+        const isGuaranteed = r === guaranteedTop;
+
+        let tradeoff = "";
+        if (isGuaranteed) {
+          tradeoff = `Both options guarantee 100% of students receive a Top ${r} choice!`;
+        } else if (aCum !== bCum) {
+          tradeoff = aCum > bCum
+            ? `Option A places +${aCum - bCum} more students in Top ${r} (+${(aPct - bPct).toFixed(1)}%) <span class="badge-advantage">Option A advantage</span>`
+            : `Option B places +${bCum - aCum} more students in Top ${r} (+${(bPct - aPct).toFixed(1)}%) <span class="badge-advantage">Option B advantage</span>`;
+        } else {
+          tradeoff = "Identical across both options";
+        }
+
+        tableRows.push({
+          metric: `Top ${r} Choices Combined${isGuaranteed ? " (Guaranteed)" : ""}`,
+          optA: `${aPct}% (${aCum} students)`,
+          optB: `${bPct}% (${bCum} students)`,
+          highlightA: isGuaranteed || aCum > bCum,
+          highlightB: isGuaranteed || bCum > aCum,
+          tradeoff
+        });
+      }
+    }
+
+    // 3. Below Guaranteed Rank row
+    const aLowerThanGuar = totalStudents - aCum;
+    const bLowerThanGuar = totalStudents - bCum;
+    const aLowerPct = totalStudents > 0 ? ((aLowerThanGuar / totalStudents) * 100).toFixed(1) : "0.0";
+    const bLowerPct = totalStudents > 0 ? ((bLowerThanGuar / totalStudents) * 100).toFixed(1) : "0.0";
+
+    tableRows.push({
+      metric: `Below Rank ${guaranteedTop} / Unranked`,
+      optA: `${aLowerThanGuar} (${aLowerPct}%)`,
+      optB: `${bLowerThanGuar} (${bLowerPct}%)`,
+      highlightA: false,
+      highlightB: false,
+      tradeoff: maxStage <= 1
+        ? `Strictly zero: No student was assigned below rank ${guaranteedTop}`
+        : `Relaxed ranking permitted assignments below top ranks`
+    });
+
+    tableRows.push({
+      metric: "Site Min & Max Capacities",
+      optA: matcherA.stageUsed >= 3 ? "Relaxed (Below Min)" : "100% Satisfied",
+      optB: matcherB.stageUsed >= 3 ? "Relaxed (Below Min)" : "100% Satisfied",
+      highlightA: matcherA.stageUsed < 3,
+      highlightB: matcherB.stageUsed < 3,
+      tradeoff: maxStage < 3
+        ? `Every site strictly receives at least min and no more than max`
+        : `Minimum enrollment limits were relaxed in Stage 3 to allow all students to be assigned`
+    });
 
     tableRows.forEach(row => {
       const tr = document.createElement("tr");
@@ -771,6 +796,52 @@ class Program {
     // Default console log view
     this.activeLogOption = "A";
     this.updateLogView();
+  }
+
+  renderMetricList(matcher, totalStudents, guaranteedTop) {
+    let html = "";
+    const ranksToShow = Math.max(3, guaranteedTop);
+
+    // 1. Individual Ranks (Rank 1, 2, 3, 4, 5, etc.)
+    for (let r = 1; r <= ranksToShow; r++) {
+      const count = matcher.details[r] || 0;
+      const pct = totalStudents > 0 ? ((count / totalStudents) * 100).toFixed(1) : "0.0";
+      const suffix = r === 1 ? "st" : (r === 2 ? "nd" : (r === 3 ? "rd" : "th"));
+      html += `
+        <div class="option-metric-row">
+          <span class="metric-name">${r}${suffix} Choice (Rank ${r}):</span>
+          <span class="metric-val">${pct}% (${count})</span>
+        </div>
+      `;
+    }
+
+    // 2. Cumulative Ranks (Top 2, Top 3, Top 4...)
+    let cum = 0;
+    for (let r = 1; r <= ranksToShow; r++) {
+      cum += (matcher.details[r] || 0);
+      if (r >= 2) {
+        const pct = totalStudents > 0 ? ((cum / totalStudents) * 100).toFixed(1) : "0.0";
+        const isGuaranteed = r === guaranteedTop;
+        html += `
+          <div class="option-metric-row highlight">
+            <span class="metric-name">Top ${r} Total${isGuaranteed ? ' (Guaranteed)' : ''}:</span>
+            <span class="metric-val ${isGuaranteed ? 'highlight-success' : ''}">${pct}% (${cum})</span>
+          </div>
+        `;
+      }
+    }
+
+    // 3. Lower rank check (Rank > guaranteedTop)
+    const lowerCount = totalStudents - cum;
+    const lowerPct = totalStudents > 0 ? ((lowerCount / totalStudents) * 100).toFixed(1) : "0.0";
+    html += `
+      <div class="option-metric-row">
+        <span class="metric-name">Rank ${guaranteedTop + 1} or Lower:</span>
+        <span class="metric-val">${lowerPct}% (${lowerCount})</span>
+      </div>
+    `;
+
+    return html;
   }
 
   updateLogView() {
